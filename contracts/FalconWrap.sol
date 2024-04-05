@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.7.0;
+pragma solidity ^0.8.17;
 
-import "./Falcon.sol";
+import "../contracts/Falcon.sol";
 
 contract FalconWrap is Falcon {
     function verify(

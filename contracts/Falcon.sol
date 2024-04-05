@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.7.0;
+pragma solidity ^0.8.17;
 
 // Portions: Apache-2.0
 
@@ -462,9 +462,8 @@ contract Falcon
     {
         uint32    d;
 
-        d = x + y - Q;
-        d += Q & -(d >> 31);
-        result = d;
+        d = x + y;
+        result = d % Q;
     }
 
     ////////////////////////////////////////
@@ -475,9 +474,8 @@ contract Falcon
          // As in mq_add(), we use a conditional addition to ensure the result is in the 0..q-1 range.
         uint32    d;
 
-        d = x - y;
-        d += Q & -(d >> 31);
-        return d;
+        d = Q + x - y;
+        return d % Q;
     }
 
     ////////////////////////////////////////
@@ -485,7 +483,10 @@ contract Falcon
     ////////////////////////////////////////
     function mq_rshift1(uint32 x) private pure returns (uint32 result)
     {
-        x += Q & -(x & 1);
+
+        if ((x & 1) == 1) {
+            x += Q;
+        }
         return (x >> 1);
     }
 
@@ -501,9 +502,9 @@ contract Falcon
         z = x * y;
         w = ((z * Q0I) & 0xFFFF) * Q;
         z = (z + w) >> 16;
-        z -= Q;
-        z += Q & -(z >> 31);
-        return z;
+        // z -= Q;
+        // z += Q & -(z >> 31);
+        return z % Q;
     }
 
     ////////////////////////////////////////
@@ -1083,9 +1084,11 @@ contract Falcon
     function OQS_SHA3_shake256_inc_init() public payable
     {
         int16 ii;
+        int256 iii;
 
         for (ii=0; ii < CTX_ELEMENTS; ii++)
-            shake256_context64[uint256(ii)] = 0;
+            iii = ii;
+            shake256_context64[uint256(iii)] = 0;
         keccak_inc_init();
     }
 
@@ -1119,9 +1122,11 @@ contract Falcon
     function OQS_SHA3_shake256_inc_ctx_release() public payable
     {
         int16 ii;
+        int256 iii;
         // Blat over any sensitive data
         for (ii=0; ii < CTX_ELEMENTS; ii++)
-            shake256_context64[uint256(ii)] = 0;
+            iii=ii;
+            shake256_context64[uint256(iii)] = 0;
     }
 
     // ==== sha3_c.c END =====================================================================================================================
@@ -1203,7 +1208,9 @@ contract Falcon
                 else if ((u - p) < n2) { whichBlockD = 2; whichOffsetD = (u-p)-n ; dv = pBlock2WorkingStorageWords[(u - p) - n ];}
                 else                   { whichBlockD = 3; whichOffsetD = (u-p)-n2; dv = pBlock3TempSixtyThreeWords[(u - p) - n2];}
 
-                mk &= -(((j & p) + 0x01FF) >> 9);  // Be aware that all these vars are unsigned.
+                if ((((j & p) + 0x01FF) >> 9) == 0){
+                    mk &=0; // -(((j & p) + 0x01FF) >> 9);  // Be aware that all these vars are unsigned.
+                }
 
                 //*pSomethingS = (uint16_t)(sv ^ (mk & (sv ^ dv)));
                 //*pSomethingD = (uint16_t)(dv ^ (mk & (sv ^ dv)));
@@ -1247,7 +1254,9 @@ contract Falcon
             ng |= s;
         }
 
-        s |= -(ng >> 31);
+        if ((ng >> 31) != 0){
+            s |= 0xffffffff;
+        }
 
         uint32 val = ((uint32(7085) * uint32(12289)) >> (10 - logn));
         if (s < val)
@@ -1370,7 +1379,7 @@ contract Falcon
                 }
             }
 
-            int16 val = int16((s!=0) ? -int(m) : int(m));
+            int16 val = int16((s!=0) ? -int16(m) : int16(m));
             pOutput[u] = val;                               // pOutput[u] = int16(s ? -int(m) : int(m));
 
         } // For
@@ -1398,12 +1407,14 @@ contract Falcon
         // Reduce s2 elements modulo q ([0..q-1] range).
         for (u = 0; u < n; u++)
         {
-            uint32 w;
+            int32 w;
 
-            w = uint32(s2[u]);
+            w = int32(s2[u]);
 
-            w += Q & -(w >> 31);
-            pWorkingStorageWords[u] = uint16(w);
+            if ((w >> 31) != 0) {
+                w += int32(Q);
+            }
+            pWorkingStorageWords[u] = uint16(int16(w));
         }
 
         // Compute -s1 = s2*h - c0 mod phi mod q (in pWorkingStorageWords[]).
@@ -1415,11 +1426,13 @@ contract Falcon
         // Normalize -s1 elements into the [-q/2..q/2] range.
         for (u = 0; u < n; u++)
         {
-            int32 w;
+            uint32 w;
 
-            w = int32(pWorkingStorageWords[u]);
-            w -= int32(Q & -(((Q >> 1) - uint32(w)) >> 31));
-            pWorkingStorageWords[u] = uint16(int16(w));   // ((int16_t *)pWorkingStorageWords)[u] = (int16_t)w;
+            w = uint32(pWorkingStorageWords[u]);
+            if ((((Q >> 1) - uint32(w)) >> 31) != 0){
+                w -= uint32(Q);
+            }
+            pWorkingStorageWords[u] = uint16(w);   // ((int16_t *)pWorkingStorageWords)[u] = (int16_t)w;
         }
 
         // Signature is valid if and only if the aggregate (-s1,s2) vector is short enough.
