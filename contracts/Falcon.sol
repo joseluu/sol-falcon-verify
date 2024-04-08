@@ -496,15 +496,15 @@ contract Falcon
     ////////////////////////////////////////
     function mq_montymul(uint32 x, uint32 y) private pure returns (uint32 result)
     {
-        uint32    z;
-        uint32    w;
+        uint64    z;
+        uint64    w;
 
         z = x * y;
         w = ((z * Q0I) & 0xFFFF) * Q;
         z = (z + w) >> 16;
         // z -= Q;
         // z += Q & -(z >> 31);
-        return z % Q;
+        return uint32(z % Q);
     }
 
     ////////////////////////////////////////
@@ -1168,15 +1168,30 @@ contract Falcon
             pTwoByteBuffer = OQS_SHA3_shake256_inc_squeeze(2);                      // twoByteBuffer = {0xB4, 0x67}     {0x90, 0x00}
             w = (uint32(pTwoByteBuffer[0]) << 8) | uint32(pTwoByteBuffer[1]);       // Convert little endian bytearray to uint32
                                                                                     // w  = 0x0000B467                  0x00009000
-            wr = w  - (uint32(24578) & (((w  - 24578 /*0x6002*/) >> 31) - 1));      // wr = 0x5465                      0x2FFE
-            wr = wr - (uint32(24578) & (((wr - 24578 /*0x6002*/) >> 31) - 1));      // wr = 0x5465 really ???           0x2FFE
-            wr = wr - (uint32(12289) & (((wr - 12289 /*0x3001*/) >> 31) - 1));      // wr = 0x2464                      0x2FFE
-            wr |= ((w - 61445 /*0xF005*/) >> 31) - 1;                               // wr = 0x2464                      0x2FFE
+            if (w > 245780 /*0x6002*/) {
+                wr = w  - uint32(24578);
+            }
+            // above was wr = w  - (uint32(24578) & (((w  - 24578 /*0x6002*/) >> 31) - 1));      // wr = 0x5465                      0x2FFE
+            if (wr > 245780 /*0x6002*/) {
+                wr = wr  - uint32(24578);
+            }
+            // above was wr = wr - (uint32(24578) & (((wr - 24578 /*0x6002*/) >> 31) - 1));      // wr = 0x5465 really ???           0x2FFE
+            if (wr > 12289  /*0x3001*/) {
+                wr = wr  - uint32(12289);
+            }
+            // above was wr = wr - (uint32(12289) & (((wr - 12289 /*0x3001*/) >> 31) - 1));      // wr = 0x2464                      0x2FFE
+            if (w > 61445 /*0xF005*/){
+                wr |= 0xffffffff;
+            }
+            // above was wr |= ((w - 61445 /*0xF005*/) >> 31) - 1;                               // wr = 0x2464                      0x2FFE
 
             // Fill up the 3 blocks consecutively
-            if      (u < n ) { pBlock1DataWords          [u     ] = uint16(wr); }   // [   0.. 511] // n = 512
-            else if (u < n2) { pBlock2WorkingStorageWords[u - n ] = uint16(wr); }   // [ 512..1023] // n2 = 1024
-            else             { pBlock3TempSixtyThreeWords[u - n2] = uint16(wr); }   // [1024.. end]
+            if   (u < n ) {
+                pBlock1DataWords[ u ] = uint16(wr); }   // [   0.. 511] // n = 512
+            else if (u < n2) {
+                pBlock2WorkingStorageWords[ u - n ] = uint16(wr); }   // [ 512..1023] // n2 = 1024
+            else {
+                pBlock3TempSixtyThreeWords[ u - n2] = uint16(wr); }   // [1024.. end]
         }
 
         for (p = 1; p <= over; p <<= 1)   // i.e. (p = 1; p <= 205, p *= 2)
@@ -1192,13 +1207,31 @@ contract Falcon
                 uint32  mk;
 
                 // Get the value previously stored in its respective block, and a pointer to it
-                if      (u < n)  { whichBlockS = 1; whichOffsetS = u   ; sv = pBlock1DataWords          [u     ];} // sv = 0x2464
-                else if (u < n2) { whichBlockS = 2; whichOffsetS = u-n ; sv = pBlock2WorkingStorageWords[u - n ];}
-                else             { whichBlockS = 3; whichOffsetS = u-n2; sv = pBlock3TempSixtyThreeWords[u - n2];}
+                if      (u < n)  { 
+                    whichBlockS = 1;
+                    whichOffsetS = u;
+                    sv = pBlock1DataWords[ u ];
+                    } // sv = 0x2464
+                else if (u < n2) {
+                    whichBlockS = 2;
+                    whichOffsetS = u-n ;
+                    sv = pBlock2WorkingStorageWords [u - n ];
+                    }
+                else { 
+                    whichBlockS = 3;
+                    whichOffsetS = u-n2;
+                    sv = pBlock3TempSixtyThreeWords[u - n2];
+                    }
 
                 j = u - v;                   // j = 0 - 0
-                mk = (sv >> 15) - uint32(1); // mk = 0 - 1 = 0xFFFF
-                v -= mk;                     // v = 1   // Be aware that both v and mk are unsigned.
+                if ((sv >> 15) == 0){
+                    mk = 0xffffffff;
+                    v = v +1;
+                } else {
+                    mk = 0;
+                }
+                // above was mk = (sv >> 15) - uint32(1); // mk = 0 - 1 = 0xFFFF
+                // above was v -= mk;                     // v = 1   // Be aware that both v and mk are unsigned.
                 if (u < p)                   // First round, u = 0, p = 1
                 {
                     continue;
@@ -1237,30 +1270,31 @@ contract Falcon
         uint32 u;
         uint32 s;
         uint32 ng;
+        unchecked {
+            n = uint32(1) << logn;
+            s = 0;
+            ng = 0;
+            for (u = 0; u < n; u++)
+            {
+                uint16 z;
 
-        n = uint32(1) << logn;
-        s = 0;
-        ng = 0;
-        for (u = 0; u < n; u++)
-        {
-            uint16 z;
+                z = s1[u];
+                s += uint32(z * z);
+                ng |= s;
 
-            z = s1[u];
-            s += uint32(z * z);
-            ng |= s;
+                z = uint16(s2[u]);
+                s += uint32(z * z);
+                ng |= s;
+            }
 
-            z = uint16(s2[u]);
-            s += uint32(z * z);
-            ng |= s;
+            if ((ng >> 31) != 0){
+                s |= 0xffffffff;
+            }
+        // above was s |= -(ng >> 31);
+            uint32 val = ((uint32(7085) * uint32(12289)) >> (10 - logn));
+            if (s < val)
+            return 1;
         }
-
-        if ((ng >> 31) != 0){
-            s |= 0xffffffff;
-        }
-
-        uint32 val = ((uint32(7085) * uint32(12289)) >> (10 - logn));
-        if (s < val)
-           return 1;
         return 0; // //return s < ((uint32(7085) * uint32(12289)) >> (10 - logn));
     }
 
@@ -1416,28 +1450,32 @@ contract Falcon
             }
             pWorkingStorageWords[u] = uint16(int16(w));
         }
-
+        // revert("loop 1 done");
         // Compute -s1 = s2*h - c0 mod phi mod q (in pWorkingStorageWords[]).
         mq_NTT(pWorkingStorageWords, logn);
+        // revert("mq 1 done");
         mq_poly_montymul_ntt(pWorkingStorageWords, pH, logn);
+        // revert("mq 2 done");
         mq_iNTT(pWorkingStorageWords, logn);
+        // revert("mq 3 done");
         mq_poly_sub(pWorkingStorageWords, c0, logn);
+        //revert("mq 4 done");
 
         // Normalize -s1 elements into the [-q/2..q/2] range.
         for (u = 0; u < n; u++)
         {
-            uint32 w;
+            int32 w;
 
-            w = uint32(pWorkingStorageWords[u]);
-            if ((((Q >> 1) - uint32(w)) >> 31) != 0){
-                w -= uint32(Q);
+            w = int32(uint32(pWorkingStorageWords[u]));
+            if (uint32(w) > (Q >> 1)){
+                w -= int32(Q);
             }
-            pWorkingStorageWords[u] = uint16(w);   // ((int16_t *)pWorkingStorageWords)[u] = (int16_t)w;
+            pWorkingStorageWords[u] = uint16(uint32(w));   // ((int16_t *)pWorkingStorageWords)[u] = (int16_t)w;
         }
-
+        // revert("loop 2 done");
         // Signature is valid if and only if the aggregate (-s1,s2) vector is short enough.
         int16 success = PQCLEAN_FALCON512_CLEAN_is_short(pWorkingStorageWords, s2, logn);
-
+        // revert("PQ 2 done");
         return success;
     }
 
@@ -1516,7 +1554,6 @@ contract Falcon
         {
             return FALCON_ERR_SIZE + (-70);
         }
-
 
         // Enclosed in block in order to create a tighter scope for local vars and hence reduce stack usage.
         {
@@ -1621,6 +1658,7 @@ contract Falcon
                     rc = FALCON_ERR_BADSIG + (-130);
                 return rc;
             }
+        
             // JG: pWordArrayH now contains decoded public key
             PQCLEAN_FALCON512_CLEAN_to_ntt_monty(pWordArrayH, 9);
             // JG: pWordArrayH now contains montified decoded public key
@@ -1637,24 +1675,27 @@ contract Falcon
         }
         // JG: pSignedWordArraySig now contains the decoded signature
 
-
         uint16[]  memory pWordArrayWorkingStorage;     // uint8[2*512]
         uint16[]  memory pWordArrayHm;                 // uint16[512]
 
         pWordArrayWorkingStorage = new uint16[](512);  // uint8[2*512]
         pWordArrayHm             = new uint16[](512);  // uint16[512]
-
         ///////////////////////////////////////////////
         // Hash Nonce + Message into a vector.
         OQS_SHA3_shake256_inc_init();
+        //return 71;
         OQS_SHA3_shake256_inc_absorb(pNonce, NONCELEN);
+        //return 72;
         OQS_SHA3_shake256_inc_absorb(pMessage, cbMessage);
+        //return 73;
         OQS_SHA3_shake256_inc_finalize();
+       // return 74;
         PQCLEAN_FALCON512_CLEAN_hash_to_point_ct(pWordArrayHm, 9, pWordArrayWorkingStorage);
+        // return 75;
         OQS_SHA3_shake256_inc_ctx_release();
 
         // RULE: Signature Validation should succeed if all fields are valid
-
+        // return 76;
         ///////////////////////////////////////////////
         // Verify signature.
         int16 success = PQCLEAN_FALCON512_CLEAN_verify_raw(pWordArrayHm, pSignedWordArraySig, pWordArrayH, 9, pWordArrayWorkingStorage);
